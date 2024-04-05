@@ -1,60 +1,66 @@
 import torch
 from spectrum import Spectrum
 from miscellaneous import voigt_
+import sys
 class FishSchool:
+    little_val = -1e10
     def __init__(self, nfish, nbands, fitness_func):
         self.tol = 1e-9
         self.nparam_per_band = 4
         self.nfish = nfish
         self.nbands = nbands
-        self.best = -float('inf')
+        self.best = FishSchool.little_val
         self._fitness_func = fitness_func
-
-        self.positions = torch.Tensor(nfish,
+        
+        self.positions = torch.FloatTensor(nfish,
                                             nbands * self.nparam_per_band,
                                             ).double()
-        self.weights = torch.Tensor(nfish).double()
-        self.delta_fitness = torch.zeros_like(self.weights).double()
+        self.weights = torch.full([nfish], 1.).double()
+        self.delta_fitness = torch.zeros_like(self.weights).add_(self.tol).double()
         self.boundaries = None
-        self.total_weight = -float('inf')
+        self.total_weight = 0.
         # self.new_position = torch.FloatTensor(nfish, nbands * self.nparam_per_band, dtype=torch.float64)
-        self.delta_pos = torch.zeros_like(self.positions).double()
-        self.fitness = torch.Tensor(nfish).double()
-
+        self.delta_pos = torch.zeros_like(self.positions).add_(self.tol).double()
+        self.fitness = torch.full([nfish], FishSchool.little_val).double()
         self.step_vol = .5
         self.step_ind = .1
         self.init = False
         self.optimal_position = None
 
     def _calc_fitness(self, positions):
-        return self._fitness_func(positions)
+        fitness = torch.zeros_like(self.fitness)
+        for i, position in enumerate(positions):
+            fitness[i] = self._fitness_func(position)
+        return fitness
 
     def _upd_optimal(self):
         i = torch.argmax(self.fitness)
         if self.best < self.fitness[i]:
             self.optimal_position = self.positions[i, :]
-            self.best = self.fitness[i].detach()
+            self.best = self.fitness[i].detach().item()
 
     def _individual_swimming(self):
         newp = self._individual()
         delta_pos = newp - self.positions
         newf = self._calc_fitness(newp)
         mask = newf > self.fitness
-        self.fitness[mask] = newf[mask]
-        self.positions[mask, :] = newp[mask, :]
+        # assert mask.any()
 
         self.delta_pos = torch.zeros_like(self.positions)
         self.delta_pos[mask, :] = delta_pos[mask, :]
-
+        
         self.delta_fitness = (newf - self.fitness)
-        self.delta_fitness[~mask, :] = 0.
-    
+        self.delta_fitness[~mask] = 0.
+
+        self.fitness[mask] = newf[mask]
+        self.positions[mask, :] = newp[mask, :]
     
     def _collective_swimming(self):
         self.positions = self._instinctive()
         self.positions = self._collective()
+        # self._update_total_weight()   
+        self._feed()
         self._update_total_weight()
-        
 
     def _feed(self):
         max_d_fitness = self.delta_fitness.max()
@@ -68,42 +74,40 @@ class FishSchool:
 
     def _collective(self):
         total = self.weights.sum()
-        barycenter = self.weights * self.positions / total
+        barycenter =  self.positions * self.weights[:, None] / total
         search = (-1) ** (total.item()  <= self.total_weight)
-        lmb = torch.rand_like(self.weights)
+        lmb = torch.rand_like(self.weights)[:, None]
         new_position = self._clip(self.positions + (self.positions - barycenter) \
             * self.step_vol * lmb * search)
         return new_position
 
     def run(self, max_iter=1000):
         self._init_weights()
-        while max_iter and self._check_stop():
+        while max_iter: #and self._check_stop():
             max_iter -= 1
             self._individual_swimming()
             self._collective_swimming()
-            self._feed()
-            self._update_total_weight()
+            # self._feed()
+            # self._update_total_weight()
             self._upd_optimal()
 
     def init_boundaries(self, pd):
-        # self.boundaries = [pd[k] for k in ['amp', 'w', 'x0', 'gau']]
         nbands = self.nbands
         self.boundaries = torch.tensor([
             pd[k] for k in ['amp', 'w', 'x0', 'gau']])[:, None, :].repeat(1, nbands, 1).view(-1, 2).t()
 
     def _init_weights(self):
-        # for i in range(4):
-        #     a, b = self.boundaries[i]
-        #     self.positions[:, i * self.nbands: (i + 1) * self.nbands] = torch.rand(self.nbands) * (b - a) + a
-        self.positions = (self.boundaries[1, :] - self.boundaries[0, :]) * torch.rand(self.nbands * self.nparam_per_band) + self.boundaries[0, :]
+        self.positions = (self.boundaries[1, :] - self.boundaries[0, :]).repeat(self.nfish, 1) * torch.rand(self.nfish, self.nbands * self.nparam_per_band)\
+              + self.boundaries[0, :].repeat(self.nfish, 1)
 
     def _individual(self):
-        lmb = torch.rand_like(self.positions) * 2 - 1
-        return self._clip(self.positions + lmb * self.step_ind)
+        lmb = torch.rand_like(self.positions).mul_(2).sub_(1).mul_(self.step_ind)
+        return self._clip(self.positions + lmb)
 
     def _instinctive(self):
         total_delta = self.delta_fitness.sum().item()
-        instinct = self.delta_positions * self.delta_fitness
+        # print(self.delta_pos.size(), self.delta_fitness.size())
+        instinct = self.delta_pos * self.delta_fitness[:, None]#.view(self.nfish)
         if total_delta:
             instinct /= total_delta
         return self._clip(self.positions + instinct)
@@ -130,18 +134,17 @@ class Deconvolutor:
         spc.get_derivative(2)
         return len(spc.get_extrema(minima=True,)[0])
     
-    def __split_params(params, n=4):
-        return [p for p in params.view(n, -1)]
-    
     def get_fitness(self):
         x, reference = self.x, self.reference
         def _fitness_f(params):
-            approx = voigt_(x, *params.view(4, -1))
+            approx = voigt_(x, *params.view(4, -1), True)
             mse = torch.square_(approx.sub_(reference)).mean()
             if not self.mse_transform:
-                return mse.neg().item()
-            elif 'neg_log':
-                return mse.log().neg().item()
+                return mse.neg_()
+            elif self.mse_transform == 'neg_log':
+                return mse.add_(1e-8).log_().neg_()
+            elif self.mse_transform == 'reciprocal':
+                return torch.reciprocal_(mse)
             else:
                 raise NotImplementedError
         return _fitness_f
