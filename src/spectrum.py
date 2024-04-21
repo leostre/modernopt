@@ -165,7 +165,7 @@ class Spectrum:
         self.data = savgol_filter(
             self.data, win_width, polyorder=order, deriv=n)
 
-    def get_extrema(self, locals=True, minima=False, include_edges=False):
+    def get_extrema(self, locals=True, minima=False, include_edges=False, tolerance=np.inf):
         """
         params
         locals: bool - if True, return every local extrema specified, else only the global one.
@@ -178,10 +178,12 @@ class Spectrum:
         iextr = 1
 
         if minima:
-            f = lambda i: self.data[i - 1] > self.data[i] and self.data[i] < self.data[i + 1]
+            f = lambda i: self.data[i - 1] > self.data[i] and self.data[i] < self.data[i + 1] \
+                          and self.data[i] < tolerance
             comp = lambda i, iextr: self.data[i] < self.data[iextr]
         else:
-            f = lambda i: self.data[i - 1] < self.data[i] and self.data[i] > self.data[i + 1]
+            f = lambda i: self.data[i - 1] < self.data[i] and self.data[i] > self.data[i + 1] \
+                          and self.data[i] > tolerance
             comp = lambda i, iextr: self.data[i] > self.data[iextr]
 
         for i in range(1, len(self) - 1):
