@@ -22,7 +22,7 @@ def getInitPoint(x, data):
         dist1 = mus[i + 1] - mus[i]
         dist2 = mus[i] - mus[i - 1]
         widths = np.append(widths, min(dist1, dist2) / 2)
-    widths = torch.tensor([w for w in np.append(widths, (mus[n - 1] - mus[n - 2]) / 2)])
+    widths = torch.distributions.uniform.Uniform(0.1, 0.2).sample([n, ])
     g = torch.distributions.uniform.Uniform(0.5, 1.0).sample([n, ])
     return torch.stack([A, widths, mus, g])
 
@@ -427,6 +427,7 @@ class QHAdam(Adam):
 
 class GradDeconvolutor:
     def __init__(self, data: torch.Tensor, x: torch.Tensor, startPoint, optimizer: SGD):
+
         self.data = torch.clone(data)
         self.x = torch.clone(x)
         self.startPoint = startPoint
@@ -440,17 +441,14 @@ class GradDeconvolutor:
             return voigt(self.x, torch.tensor([1]), w, mu, G)
 
         def dF_dW(amp, w, mu, G):
-            res = amp * (torch.square(self.x - mu) * (
-                    gauss(self.x, torch.tensor([1]), w, mu) / torch.pow(w / width_sigma, 3) * G + \
-                    2 * torch.square( lorentz(self.x, torch.tensor([1]), w, mu)) * (1 - G) / torch.pow(w / width_lambda, 3)) - (
-                    gauss(self.x, torch.tensor([1]), w, mu) / (w / width_sigma) * G +
-                    lorentz(self.x, torch.tensor([1]), w, mu) * (1 - G) / (w / width_lambda))
-                    )
+            res = -amp *((1 - G) * self.x / 2 / torch.square(torch.square((self.x - mu) / 2) + torch.square(w)) +
+                        G * 16 * np.log(2) * (self.x - mu) / torch.square(w) * gauss(self.x, torch.tensor([1]), w, mu))
             return res
 
         def dF_dmu(amp, w, mu, G):
             res = (self.x - mu) * (gauss(self.x, amp, w, mu) * G / torch.square((w / width_sigma)) + \
-                   2 * amp * torch.square(lorentz(self.x, torch.tensor([1]), w, mu) / w * width_lambda) * (1 - G))
+                                   2 * amp * torch.square(
+                        lorentz(self.x, torch.tensor([1]), w, mu) / w * width_lambda) * (1 - G))
             return res
 
         def dF_dG(amp, w, mu, G):
