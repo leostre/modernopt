@@ -36,7 +36,8 @@ def gauss(x, amp, w, mu):
     sigma = w / width_sigma
     return amp * exp(-square((x - mu) / sigma))
 
-def lorentz(x, amp, w, x0):
+
+def lorentz(x, amp, x0, w):
     """
     :param x: iterable of numeric - wavelengths axis
     :param amp: float - pseudo-Voigt bell amplitude
@@ -78,7 +79,8 @@ def voigt_(x, amp, w, x0, gau, sum=True):
         res = res.sum(0)
     return res
 
-def voigt(x, amp, w, x0, gauss_prop):
+
+def voigt(x, amp, x0, w, gauss_prop):
     """
     :param x: iterable of numeric - wavelengths axis
     :param amp: float - pseudo-Voigt bell amplitude
