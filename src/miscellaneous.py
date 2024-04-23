@@ -23,7 +23,7 @@ width_sigma = 2 * sqrt(log(2))  # * np.sqrt(2)
 width_lambda = 2.
 
 
-def gauss(x, amp, mu, w):
+def gauss(x, amp, w, mu):
     """
     :param x: iterable of numeric - wavelengths axis
     :param amp: float - Gaussian bell amplitude
@@ -35,6 +35,7 @@ def gauss(x, amp, mu, w):
     """
     sigma = w / width_sigma
     return amp * exp(-square((x - mu) / sigma))
+
 
 def lorentz(x, amp, x0, w):
     """
@@ -77,6 +78,7 @@ def voigt_(x, amp, w, x0, gau, sum=True):
     if sum:
         res = res.sum(0)
     return res
+
 
 def voigt(x, amp, x0, w, gauss_prop):
     """
@@ -149,5 +151,3 @@ def load_model(path):
     with open(path, 'rb') as inp:
         tmp = pickle.load(inp)
     return tmp
-
-
