@@ -448,11 +448,11 @@ class GradDeconvolutor:
         def dF_dmu(amp, w, mu, G):
             res = (self.x - mu) * (gauss(self.x, amp, w, mu) * G / torch.square((w / width_sigma)) + \
                                    2 * amp * torch.square(
-                        lorentz(self.x, torch.tensor([1]), w, mu) / w * width_lambda) * (1 - G))
+                        lorentz(self.x, torch.tensor([1]), mu, w) / w * width_lambda) * (1 - G))
             return res
 
         def dF_dG(amp, w, mu, G):
-            return gauss(self.x, amp, w, mu) - lorentz(self.x, amp, w, mu)
+            return gauss(self.x, amp, w, mu) - lorentz(self.x, amp, mu, w)
 
         nbands = params.shape[1]
         grad = np.array([])
